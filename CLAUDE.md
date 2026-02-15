@@ -134,7 +134,47 @@ All 24 best practices from `research/mcp-server-best-practices.md` audited again
 Tests: 80 → 85 (5 new: workflow hints, response enums, name overrides, no dedup suffixes, clean tool names)
 
 ### Sprint 3: Integration Testing
-Status: NOT STARTED
+Status: COMPLETE
+
+94 integration tests exercising generated tools against a live Docker slskd instance.
+
+#### Test infrastructure:
+- `tests/conftest.py`: Session-scoped fixtures (health check, env setup, server import, tool accessor, raw httpx client)
+- `tests/test_integration.py`: 94 tests across 8 test classes
+- Auto-skip when Docker is not running (health check fixture)
+- FunctionTool unwrapping via `.fn` attribute (FastMCP `@mcp.tool()` wraps functions)
+
+#### Test coverage (94 tests):
+- **TestAlwaysRegisteredTools** (4): overview, search_tools, report_issue
+- **TestReadOnlyEndpoints** (21): All GET endpoints tested — 15 succeed, 6 validate expected error behavior (403 admin-only, 500 no dump, Prometheus text/plain)
+- **TestListToolFeatures** (12): 6 list tools × 2 tests (default shape, filter nonexistent) — validates `_filter_response` wrapper
+- **TestSearchWorkflow** (4): Preview gate, 409 when disconnected, list, 404 for nonexistent
+- **TestConfirmGates** (38): All 38 mutation tools tested with `confirm=False` — validates preview dict shape
+- **TestSafeMutations** (5): GC, clear downloads/uploads, cancel scan, sample event — validates execution or expected error
+- **TestErrorHandling** (3): 404 shape, tool name in errors, user-scoped 404
+- **TestCrossVerification** (3): Tool output matches raw httpx for server, application, options
+- **TestEmptyCollections** (5): Validates empty lists for downloads, uploads, conversations, events, searches
+
+#### API behavior discoveries:
+- `/api/v0/application/dump` returns 500 (dump file not generated in Docker)
+- `/api/v0/options/debug`, `/yaml`, `/yaml/location` return 403 (admin-only even with NO_AUTH)
+- `/api/v0/telemetry/metrics` returns Prometheus text/plain (not JSON) — causes unhandled JSONDecodeError
+- `POST /api/v0/events/{type}` returns 415 without Content-Type header (generator sends no body/content-type for path-only POST)
+- `DELETE /api/v0/shares` returns 404 when no share scan is running
+- `POST /api/v0/searches` returns 409 when Soulseek is disconnected
+
+#### Tools NOT tested with live execution (and why):
+| Category | Tools | Reason |
+|----------|-------|--------|
+| Peer browsing | `slskd_get_users_browse/status/endpoint/info/status` | Require Soulseek network |
+| Room discovery | `slskd_list_rooms_available` | Requires server connection |
+| Relay | 5 relay tools | Require relay controller setup |
+| Destructive app | `slskd_update/delete_application` | Would kill test instance |
+| Server connect | `slskd_update_server` | Would attempt Soulseek connection |
+
+All these tools still get `confirm=False` preview testing via TestConfirmGates.
+
+Tests: 85 → 179 (94 new integration tests)
 
 ### Sprint 4: LLM Testing
 Status: NOT STARTED
