@@ -1,0 +1,35 @@
+# slskd test instance for integration testing.
+# Usage:
+#   docker compose -f docker/docker-compose.yml up -d
+#   bash docker/wait-for-ready.sh
+#   pytest tests/test_integration.py -v --integration
+#   docker compose -f docker/docker-compose.yml down
+
+version: "3.8"
+
+services:
+  slskd:
+    image: slskd/slskd:latest
+    container_name: slskd-test
+    environment:
+      - SLSKD_SWAGGER=true
+      - SLSKD_NO_AUTH=true
+      - SLSKD_SLSK_NO_CONNECT=true
+      - TZ=UTC
+    ports:
+      - "15030:5030"
+    volumes:
+      - slskd-app:/app
+      - slskd-downloads:/downloads
+      - slskd-music:/music
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5030/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+volumes:
+  slskd-app:
+  slskd-downloads:
+  slskd-music:
