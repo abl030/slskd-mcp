@@ -34,16 +34,64 @@ _PATH_TO_MODULE: dict[str, str] = {
 # HTTP methods considered mutations (require confirm gate)
 _MUTATION_METHODS = {"post", "put", "patch", "delete"}
 
-# Workflow hints appended to mutation tool docstrings
+# Workflow hints appended to tool docstrings
 _WORKFLOW_HINTS: dict[str, str] = {
     "slskd_create_search": (
         "Note: Search is async. Poll slskd_get_search to check if state is"
-        " 'Completed', then call slskd_list_searches_responses to get results."
+        " 'Completed', then call slskd_get_searches_responses to get results."
     ),
-    "slskd_create_transfers_download": (
+    "slskd_create_transfers_downloads": (
         "Note: After queueing, monitor progress with slskd_list_transfers_downloads."
         " Clear completed downloads with slskd_delete_transfers_downloads_all_completed."
     ),
+    "slskd_get_users_browse": (
+        "Note: To download files from results, pass them to"
+        " slskd_create_transfers_downloads with the username."
+    ),
+    "slskd_create_rooms_joined": (
+        "Note: After joining, send messages with slskd_create_rooms_joined_messages"
+        " and read messages with slskd_get_rooms_joined_messages."
+    ),
+    "slskd_create_conversations": (
+        "Note: Read replies with slskd_get_conversations_messages."
+        " Acknowledge messages with slskd_update_conversation."
+    ),
+    "slskd_list_transfers_downloads": (
+        "Note: Transfer states: Requested, Queued, Initializing, InProgress,"
+        " Completed, Succeeded, Cancelled, TimedOut, Errored, Rejected, Aborted."
+    ),
+    "slskd_list_transfers_uploads": (
+        "Note: Transfer states: Requested, Queued, Initializing, InProgress,"
+        " Completed, Succeeded, Cancelled, TimedOut, Errored, Rejected, Aborted."
+    ),
+    "slskd_list_server": (
+        "Note: Server states: Disconnected, Connected, LoggedIn,"
+        " Connecting, LoggingIn, Disconnecting."
+    ),
+    "slskd_list_events": (
+        "Note: Event types: DownloadFileComplete, DownloadDirectoryComplete,"
+        " UploadFileComplete, PrivateMessageReceived, RoomMessageReceived."
+    ),
+    "slskd_get_users_status": (
+        "Note: Presence values: Offline, Away, Online."
+    ),
+}
+
+# Name overrides for collision cases where dedup produces ugly suffixes.
+# Pattern: (method, path) -> desired tool name.
+_NAME_OVERRIDES: dict[tuple[str, str], str] = {
+    ("get", "/api/v0/transfers/downloads/{username}/{id}"): "slskd_get_transfer_download",
+    ("get", "/api/v0/transfers/uploads/{username}/{id}"): "slskd_get_transfer_upload",
+    ("put", "/api/v0/conversations/{username}/{id}"): "slskd_update_conversation_message",
+}
+
+# Override response types for endpoints whose spec lacks response schemas.
+# slskd's ASP.NET generator often omits array response schemas.
+_RESPONSE_TYPE_OVERRIDES: dict[str, str] = {
+    "GET /api/v0/searches": "array",
+    "GET /api/v0/transfers/downloads": "array",
+    "GET /api/v0/transfers/uploads": "array",
+    "GET /api/v0/logs": "array",
 }
 
 # Paths to skip (non-API endpoints)
@@ -94,6 +142,7 @@ def _make_description(
         else:
             doc = f"{verb} {resource}"
 
+    doc = doc.rstrip(". ")
     if response_type == "array":
         doc += ". Returns a list."
     elif response_type == "paging":
@@ -146,10 +195,15 @@ def build_context(spec: dict[str, Any]) -> dict[str, Any]:
             operation = path_item[method]
             operation["_method"] = method
 
-            name = build_tool_name(method, path)
+            name = _NAME_OVERRIDES.get((method, path)) or build_tool_name(method, path)
             module = path_to_module(path)
             params = parse_parameters(spec, operation, path)
             response_type = get_response_type(spec, operation)
+
+            # Apply overrides for endpoints with undocumented response types
+            override_key = f"{method.upper()} {path}"
+            if response_type == "none" and override_key in _RESPONSE_TYPE_OVERRIDES:
+                response_type = _RESPONSE_TYPE_OVERRIDES[override_key]
 
             is_list = response_type in ("array", "paging")
             is_mutation = method in _MUTATION_METHODS
@@ -163,6 +217,15 @@ def build_context(spec: dict[str, Any]) -> dict[str, Any]:
                 p["name"] in _BASE64_PARAMS for p in params
             )
 
+            # Flag tools whose request body is a raw array (not flattened object).
+            # These need json_body=body instead of json_body={"body": body}.
+            body_params = [p for p in params if p["location"] == "body"]
+            is_array_body = (
+                len(body_params) == 1
+                and body_params[0]["name"] == "body"
+                and body_params[0]["type"].startswith("list[")
+            )
+
             tool = {
                 "name": name,
                 "method": method,
@@ -172,6 +235,7 @@ def build_context(spec: dict[str, Any]) -> dict[str, Any]:
                 "is_mutation": is_mutation,
                 "is_list": is_list,
                 "is_lookup": False,
+                "is_array_body": is_array_body,
                 "has_base64_params": has_base64_params,
                 "response_type": response_type,
                 "description": description,

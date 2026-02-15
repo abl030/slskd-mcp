@@ -332,7 +332,7 @@ if _module_enabled("{{ tool.module }}"):
 {% endif %}
 {% endfor %}
 {% endif %}
-{% if body_params %}
+{% if body_params and not tool.is_array_body %}
 {{ indent }}    _body: dict[str, Any] = {}
 {% for p in body_params %}
 {% if not p.required %}
@@ -350,7 +350,9 @@ if _module_enabled("{{ tool.module }}"):
 {% if query_params %}
 {{ indent }}            params=_params,
 {% endif %}
-{% if body_params %}
+{% if body_params and tool.is_array_body %}
+{{ indent }}            json_body=body,
+{% elif body_params %}
 {{ indent }}            json_body=_body,
 {% endif %}
 {{ indent }}        )

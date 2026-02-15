@@ -59,8 +59,18 @@ _SINGULARS: dict[str, str] = {v: k for k, v in _PLURALS.items()}
 
 
 def _pluralize(word: str) -> str:
-    """Return the plural form of a resource name."""
-    return _PLURALS.get(word, word + "s")
+    """Return the plural form of a resource name.
+
+    Only pluralizes words with known mappings.  If the word is already
+    a known plural or has no entry in the table, return it unchanged
+    (avoids mangling singleton resources like "server" → "servers").
+    """
+    if word in _PLURALS:
+        return _PLURALS[word]
+    # Already a known plural form — return as-is
+    if word in _SINGULARS:
+        return word
+    return word
 
 
 def _singularize(word: str) -> str:
@@ -133,12 +143,13 @@ def build_tool_name(method: str, path: str, operation_id: str | None = None) -> 
         if verb == "list":
             resource = _pluralize(resource)
         elif verb in ("get", "create", "update", "delete"):
-            if has_id:
+            if has_id and verb != "create":
+                # {param} identifies the item → singularize
                 resource = _singularize(resource)
-            elif verb == "create":
+            elif verb == "create" and not has_id:
+                # POST to collection → singularize (creating one item)
                 resource = _singularize(resource)
-            else:
-                resource = _pluralize(resource) if verb == "list" else resource
+            # else: create + has_id → {param} is a parent scope, keep as-is
         return f"slskd_{verb}_{resource}"
 
     # Multi-segment paths: join with underscores
