@@ -213,6 +213,232 @@ async def slskd_report_issue(
     return cmd
 
 
+@mcp.tool()
+async def slskd_get_search_results(
+    id: str,
+    extension: str = "",
+    minBitRate: int = 0,
+    rankBy: str = "",
+    limit: int = 0,
+) -> dict[str, Any]:
+    """Get filtered and ranked search results.
+
+    Wraps slskd_get_searches_responses with post-filtering and source ranking.
+    Use this instead of slskd_get_searches_responses when you need specific formats or bitrates.
+
+    id: The search ID (from slskd_create_search).
+    extension: Filter files by extension, e.g. "mp3", "flac". Case-insensitive.
+    minBitRate: Minimum bitrate in kbps (e.g. 320). Files without bitrate info are excluded.
+    rankBy: Set to "availability" to sort sources by free slots, speed, and queue depth. Values: availability.
+    limit: Maximum number of sources to return. 0 returns all.
+
+    To download a directory from results, use slskd_download_directory.
+    If unexpected errors occur, call slskd_report_issue.
+    """
+    try:
+        responses = await _client.request("GET", f"/api/v0/searches/{id}/responses")
+    except httpx.HTTPStatusError as exc:
+        return {
+            "error": True,
+            "source": "slskd_api",
+            "status": exc.response.status_code,
+            "message": exc.response.text[:500],
+            "tool": "slskd_get_search_results",
+        }
+    except httpx.RequestError as exc:
+        return {
+            "error": True,
+            "source": "network",
+            "status": 0,
+            "message": str(exc)[:500],
+            "tool": "slskd_get_search_results",
+        }
+
+    if not isinstance(responses, list):
+        responses = []
+
+    ext_lower = extension.lower().lstrip(".") if extension else ""
+
+    filtered_sources: list[dict[str, Any]] = []
+    for resp in responses:
+        files = resp.get("files", [])
+        matched: list[dict[str, Any]] = []
+        for f in files:
+            fname = f.get("filename", "")
+            if ext_lower and not fname.lower().endswith(f".{ext_lower}"):
+                continue
+            if minBitRate > 0:
+                br = f.get("bitRate")
+                if br is None or br < minBitRate:
+                    continue
+            matched.append(f)
+        if not matched:
+            continue
+        source = {
+            "username": resp.get("username", ""),
+            "hasFreeUploadSlot": resp.get("hasFreeUploadSlot", False),
+            "uploadSpeed": resp.get("uploadSpeed", 0),
+            "queueLength": resp.get("queueLength", 0),
+            "fileCount": len(matched),
+            "files": matched,
+        }
+        filtered_sources.append(source)
+
+    if rankBy == "availability":
+        filtered_sources.sort(
+            key=lambda s: (
+                (1 if s["hasFreeUploadSlot"] else 0)
+                * s["uploadSpeed"]
+                / (s["queueLength"] + 1)
+            ),
+            reverse=True,
+        )
+
+    if limit > 0:
+        filtered_sources = filtered_sources[:limit]
+
+    total_files = sum(s["fileCount"] for s in filtered_sources)
+    return {
+        "summary": f"Found {total_files} files from {len(filtered_sources)} sources",
+        "sources": filtered_sources,
+    }
+
+
+if not SLSKD_READ_ONLY:
+
+    @mcp.tool()
+    async def slskd_download_directory(
+        username: str,
+        directory: str,
+        search_id: str,
+        extension: str = "",
+        minBitRate: int = 0,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Download all files from a directory found in search results.
+
+        Resolves the file list from a previous search — no need to pass individual filenames.
+        Typical workflow: slskd_create_search → slskd_get_search_results → slskd_download_directory.
+
+        username: Soulseek username who has the files.
+        directory: Directory path prefix from search results (e.g. "@@user\\Music\\Artist\\Album").
+        search_id: The search ID to resolve files from.
+        extension: Filter by extension, e.g. "mp3". Case-insensitive.
+        minBitRate: Minimum bitrate in kbps. Files without bitrate info are excluded.
+        confirm: Must be True to execute. False returns a preview of what would be downloaded.
+
+        Requires confirm=True. Monitor progress with slskd_list_transfers_downloads.
+        If unexpected errors occur, call slskd_report_issue.
+        """
+        try:
+            responses = await _client.request("GET", f"/api/v0/searches/{search_id}/responses")
+        except httpx.HTTPStatusError as exc:
+            return {
+                "error": True,
+                "source": "slskd_api",
+                "status": exc.response.status_code,
+                "message": exc.response.text[:500],
+                "tool": "slskd_download_directory",
+            }
+        except httpx.RequestError as exc:
+            return {
+                "error": True,
+                "source": "network",
+                "status": 0,
+                "message": str(exc)[:500],
+                "tool": "slskd_download_directory",
+            }
+
+        if not isinstance(responses, list):
+            responses = []
+
+        # Find the response from the specified user
+        user_resp = None
+        for resp in responses:
+            if resp.get("username", "") == username:
+                user_resp = resp
+                break
+
+        if user_resp is None:
+            return {
+                "error": True,
+                "source": "slskd_api",
+                "status": 404,
+                "message": f"No search results found for user '{username}' in search {search_id}",
+                "tool": "slskd_download_directory",
+            }
+
+        ext_lower = extension.lower().lstrip(".") if extension else ""
+
+        matched_files: list[dict[str, Any]] = []
+        for f in user_resp.get("files", []):
+            fname = f.get("filename", "")
+            if not fname.startswith(directory):
+                continue
+            if ext_lower and not fname.lower().endswith(f".{ext_lower}"):
+                continue
+            if minBitRate > 0:
+                br = f.get("bitRate")
+                if br is None or br < minBitRate:
+                    continue
+            matched_files.append(f)
+
+        if not matched_files:
+            return {
+                "error": True,
+                "source": "slskd_api",
+                "status": 404,
+                "message": f"No files matching directory '{directory}' from user '{username}'",
+                "tool": "slskd_download_directory",
+            }
+
+        total_size = sum(f.get("size", 0) for f in matched_files)
+        filenames = [f.get("filename", "") for f in matched_files]
+
+        if not confirm:
+            return {
+                "preview": f"Download {len(matched_files)} files ({total_size} bytes) from {username}",
+                "confirm": "Set confirm=True to execute this download.",
+                "fileCount": len(matched_files),
+                "totalSize": total_size,
+                "directory": directory,
+                "files": filenames,
+            }
+
+        # Build the file list for the downloads API
+        download_body = [{"filename": fname, "size": f.get("size", 0)} for fname, f in zip(filenames, matched_files)]
+
+        try:
+            result = await _client.request(
+                "POST",
+                f"/api/v0/transfers/downloads/{username}",
+                json_body=download_body,
+            )
+        except httpx.HTTPStatusError as exc:
+            return {
+                "error": True,
+                "source": "slskd_api",
+                "status": exc.response.status_code,
+                "message": exc.response.text[:500],
+                "tool": "slskd_download_directory",
+            }
+        except httpx.RequestError as exc:
+            return {
+                "error": True,
+                "source": "network",
+                "status": 0,
+                "message": str(exc)[:500],
+                "tool": "slskd_download_directory",
+            }
+
+        return {
+            "queued": len(matched_files),
+            "totalSize": total_size,
+            "directory": directory,
+            "files": filenames,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Generated tools
 # ---------------------------------------------------------------------------
@@ -2067,7 +2293,7 @@ if _module_enabled("searches"):
             token: int | None = None,
             confirm: bool = False,
         ) -> dict[str, Any] | list[Any] | str:
-            """Performs a search for the specified request If unexpected errors occur, call slskd_report_issue. Note: Search is async. Poll slskd_get_search to check if state is 'Completed', then call slskd_get_searches_responses to get results.
+            """Performs a search for the specified request If unexpected errors occur, call slskd_report_issue. Note: Search is async. Poll slskd_get_search to check if state is 'Completed', then call slskd_get_search_results to get filtered results. Tip: Soulseek matches ALL search terms against file paths. Use fewer, more distinctive terms (e.g. 'ElectroSoul mp3' not 'DJ Harrison ElectroSoul mp3 320'). Format words like 'mp3' help, but bitrate numbers rarely appear in filenames.
 
             Requires confirm=True to execute. Set confirm=False to preview.
             fileLimit: Gets or sets the maximum number of file results to accept before the search is considered complete. (Default = 10,000).
@@ -2250,7 +2476,7 @@ if _module_enabled("searches"):
     async def slskd_get_searches_responses(
         id: str,
     ) -> dict[str, Any] | list[Any] | str:
-        """Gets the state of the search corresponding to the specified id If unexpected errors occur, call slskd_report_issue.
+        """Gets the state of the search corresponding to the specified id If unexpected errors occur, call slskd_report_issue. Note: For filtered and ranked results, use slskd_get_search_results instead, which supports extension filtering, bitrate filtering, and source ranking.
 
         id: The unique id of the search.
         """

@@ -28,9 +28,9 @@ class TestCodegen:
         assert self.tree is not None
 
     def test_tool_function_count(self):
-        """Should have 96 async def slskd_* functions (93 generated + 3 always-registered)."""
+        """Should have 98 async def slskd_* functions (93 generated + 5 always-registered)."""
         funcs = re.findall(r"async def (slskd_\w+)\(", self.code)
-        assert len(funcs) == 96
+        assert len(funcs) == 98
 
     def test_module_gating_present(self):
         """Module gating blocks should be present."""
@@ -44,11 +44,11 @@ class TestCodegen:
 
     def test_confirmation_gates(self):
         """Mutation tools should require confirm=True."""
-        # Count confirm parameters
+        # Count confirm parameters (38 generated + 1 always-registered slskd_download_directory)
         confirm_count = len(re.findall(r"confirm: bool = False", self.code))
         # Count mutations in context
         mutation_count = sum(1 for t in self.ctx["tools"] if t["is_mutation"])
-        assert confirm_count == mutation_count
+        assert confirm_count == mutation_count + 1  # +1 for slskd_download_directory
 
     def test_base64_encoding(self):
         """Base64 params should be auto-encoded."""
@@ -75,10 +75,12 @@ class TestCodegen:
         assert '_body["body"]' not in dl_code
 
     def test_always_registered_tools(self):
-        """Overview, search_tools, and report_issue should always be registered."""
+        """All 5 always-registered tools should be present."""
         assert "async def slskd_get_overview(" in self.code
         assert "async def slskd_search_tools(" in self.code
         assert "async def slskd_report_issue(" in self.code
+        assert "async def slskd_get_search_results(" in self.code
+        assert "async def slskd_download_directory(" in self.code
 
     def test_error_handling_pattern(self):
         """Every generated tool should have HTTP + network error handling."""
@@ -102,7 +104,7 @@ class TestCodegen:
     def test_workflow_hints_in_generated_code(self):
         """Key tools should have workflow hints in their generated docstrings."""
         checks = {
-            "slskd_create_search": "slskd_get_searches_responses",
+            "slskd_create_search": "slskd_get_search_results",
             "slskd_get_users_browse": "slskd_create_transfers_downloads",
             "slskd_create_conversations": "slskd_get_conversations_messages",
         }
@@ -144,3 +146,58 @@ class TestCodegen:
         for name in funcs:
             assert not name.endswith("_get"), f"{name} has _get dedup suffix"
             assert not name.endswith("_put"), f"{name} has _put dedup suffix"
+
+    def test_search_term_guidance_in_create_search(self):
+        """slskd_create_search should have search term guidance tip."""
+        start = self.code.index("async def slskd_create_search(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        if next_func == -1:
+            next_func = self.code.find("\n    async def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "Soulseek matches ALL search terms" in chunk
+
+    def test_new_tools_mention_report_issue(self):
+        """New high-level tools should mention slskd_report_issue."""
+        for func_name in ("slskd_get_search_results", "slskd_download_directory"):
+            start = self.code.index(f"async def {func_name}(")
+            next_func = self.code.find("\nasync def ", start + 1)
+            if next_func == -1:
+                next_func = self.code.find("\n    async def ", start + 1)
+            chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+            assert "slskd_report_issue" in chunk, f"{func_name} missing report_issue nudge"
+
+    def test_search_results_mentions_download_directory(self):
+        """slskd_get_search_results docstring should reference slskd_download_directory."""
+        start = self.code.index("async def slskd_get_search_results(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        if next_func == -1:
+            next_func = self.code.find("\n    async def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "slskd_download_directory" in chunk
+
+    def test_download_directory_mentions_monitor(self):
+        """slskd_download_directory docstring should reference slskd_list_transfers_downloads."""
+        start = self.code.index("async def slskd_download_directory(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        if next_func == -1:
+            next_func = self.code.find("\n    async def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "slskd_list_transfers_downloads" in chunk
+
+    def test_download_directory_has_confirm_gate(self):
+        """slskd_download_directory should have confirm: bool = False parameter."""
+        start = self.code.index("async def slskd_download_directory(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        if next_func == -1:
+            next_func = self.code.find("\n    async def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "confirm: bool = False" in chunk
+
+    def test_get_searches_responses_references_new_tool(self):
+        """slskd_get_searches_responses docstring should reference slskd_get_search_results."""
+        start = self.code.index("async def slskd_get_searches_responses(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        if next_func == -1:
+            next_func = self.code.find("\n    async def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "slskd_get_search_results" in chunk

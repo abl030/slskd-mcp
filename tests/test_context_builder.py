@@ -91,11 +91,12 @@ class TestBuildContext:
     def test_workflow_hints_in_descriptions(self):
         """Workflow hints should appear in tool descriptions."""
         expected = {
-            "slskd_create_search": "slskd_get_searches_responses",
+            "slskd_create_search": "slskd_get_search_results",
             "slskd_create_transfers_downloads": "slskd_list_transfers_downloads",
             "slskd_get_users_browse": "slskd_create_transfers_downloads",
             "slskd_create_rooms_joined": "slskd_create_rooms_joined_messages",
             "slskd_create_conversations": "slskd_get_conversations_messages",
+            "slskd_get_searches_responses": "slskd_get_search_results",
         }
         for tool_name, hint_ref in expected.items():
             tool = self.tools_by_name[tool_name]
@@ -157,6 +158,11 @@ class TestBuildContext:
         assert "milliseconds" in st[0]["description"]
         assert "15000" in st[0]["description"]
         assert "in seconds" not in st[0]["description"]
+
+    def test_search_term_tip_in_create_search(self):
+        """slskd_create_search description should include search term guidance."""
+        tool = self.tools_by_name["slskd_create_search"]
+        assert "Soulseek matches ALL search terms" in tool["description"]
 
     def test_non_overridden_params_retain_original(self):
         """Params without overrides should keep their spec descriptions."""

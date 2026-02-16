@@ -38,7 +38,16 @@ _MUTATION_METHODS = {"post", "put", "patch", "delete"}
 _WORKFLOW_HINTS: dict[str, str] = {
     "slskd_create_search": (
         "Note: Search is async. Poll slskd_get_search to check if state is"
-        " 'Completed', then call slskd_get_searches_responses to get results."
+        " 'Completed', then call slskd_get_search_results to get filtered results."
+        " Tip: Soulseek matches ALL search terms against file paths. Use fewer,"
+        " more distinctive terms (e.g. 'ElectroSoul mp3' not"
+        " 'DJ Harrison ElectroSoul mp3 320'). Format words like 'mp3' help,"
+        " but bitrate numbers rarely appear in filenames."
+    ),
+    "slskd_get_searches_responses": (
+        "Note: For filtered and ranked results, use slskd_get_search_results"
+        " instead, which supports extension filtering, bitrate filtering,"
+        " and source ranking."
     ),
     "slskd_create_transfers_downloads": (
         "Note: After queueing, monitor progress with slskd_list_transfers_downloads."

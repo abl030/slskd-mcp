@@ -497,3 +497,42 @@ class TestEmptyCollections:
         assert_no_error(result, "slskd_list_searches")
         assert isinstance(result, dict)
         assert isinstance(result["data"], list)
+
+
+# ===========================================================================
+# High-level tools: slskd_get_search_results, slskd_download_directory
+# ===========================================================================
+
+class TestHighLevelTools:
+    """Tests for the new high-level search/download tools."""
+
+    async def test_get_search_results_registered(self, tool):
+        """slskd_get_search_results should be a registered tool."""
+        fn = tool("slskd_get_search_results")
+        assert fn is not None
+
+    async def test_get_search_results_nonexistent_404(self, tool):
+        """slskd_get_search_results with nonexistent search ID returns 404."""
+        result = await tool("slskd_get_search_results")(id="nonexistent-id-xyz")
+        assert isinstance(result, dict)
+        assert result.get("error") is True
+        assert result["status"] == 404
+        assert result["tool"] == "slskd_get_search_results"
+
+    async def test_download_directory_registered(self, tool):
+        """slskd_download_directory should be a registered tool."""
+        fn = tool("slskd_download_directory")
+        assert fn is not None
+
+    async def test_download_directory_confirm_false_preview(self, tool):
+        """slskd_download_directory with confirm=False should return error (no search data)."""
+        result = await tool("slskd_download_directory")(
+            username="testuser",
+            directory="@@testuser\\Music",
+            search_id="nonexistent-id-xyz",
+            confirm=False,
+        )
+        assert isinstance(result, dict)
+        # With a nonexistent search ID, it will return a 404 error
+        assert result.get("error") is True
+        assert result["tool"] == "slskd_download_directory"
