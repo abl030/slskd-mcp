@@ -94,6 +94,15 @@ _RESPONSE_TYPE_OVERRIDES: dict[str, str] = {
     "GET /api/v0/logs": "array",
 }
 
+# Override parameter descriptions where the spec is wrong or misleading.
+# Key: (tool_name, param_name) → corrected description string.
+_PARAM_DESCRIPTION_OVERRIDES: dict[tuple[str, str], str] = {
+    ("slskd_create_search", "searchTimeout"): (
+        "Gets or sets the search timeout value, in milliseconds,"
+        " used to determine when the search is complete. (Default = 15000)."
+    ),
+}
+
 # Paths to skip (non-API endpoints)
 _SKIP_PATHS: set[str] = set()
 
@@ -204,6 +213,12 @@ def build_context(spec: dict[str, Any]) -> dict[str, Any]:
             override_key = f"{method.upper()} {path}"
             if response_type == "none" and override_key in _RESPONSE_TYPE_OVERRIDES:
                 response_type = _RESPONSE_TYPE_OVERRIDES[override_key]
+
+            # Apply parameter description overrides
+            for param in params:
+                override_key = (name, param["name"])
+                if override_key in _PARAM_DESCRIPTION_OVERRIDES:
+                    param["description"] = _PARAM_DESCRIPTION_OVERRIDES[override_key]
 
             is_list = response_type in ("array", "paging")
             is_mutation = method in _MUTATION_METHODS

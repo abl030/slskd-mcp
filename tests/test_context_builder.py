@@ -149,6 +149,23 @@ class TestBuildContext:
             assert not name.endswith("_get"), f"{name} has ugly _get dedup suffix"
             assert not name.endswith("_put"), f"{name} has ugly _put dedup suffix"
 
+    def test_param_description_override_applied(self):
+        """searchTimeout should say milliseconds, not seconds."""
+        tool = self.tools_by_name["slskd_create_search"]
+        st = [p for p in tool["params"] if p["name"] == "searchTimeout"]
+        assert len(st) == 1
+        assert "milliseconds" in st[0]["description"]
+        assert "15000" in st[0]["description"]
+        assert "in seconds" not in st[0]["description"]
+
+    def test_non_overridden_params_retain_original(self):
+        """Params without overrides should keep their spec descriptions."""
+        tool = self.tools_by_name["slskd_create_search"]
+        st = [p for p in tool["params"] if p["name"] == "searchText"]
+        assert len(st) == 1
+        # Should have original description from spec, not be empty or overridden
+        assert st[0]["description"]
+
     def test_readonly_fields_excluded(self):
         """readOnly fields should not appear as parameters."""
         for tool in self.ctx["tools"]:

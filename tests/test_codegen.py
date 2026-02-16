@@ -130,6 +130,14 @@ class TestCodegen:
             chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
             assert enum_value in chunk, f"{func_name} missing enum value {enum_value}"
 
+    def test_search_timeout_says_milliseconds(self):
+        """searchTimeout param description should say milliseconds, not seconds."""
+        start = self.code.index("async def slskd_create_search(")
+        next_func = self.code.find("\nasync def ", start + 1)
+        chunk = self.code[start:next_func] if next_func != -1 else self.code[start:]
+        assert "milliseconds" in chunk, "searchTimeout should mention milliseconds"
+        assert "15000" in chunk, "searchTimeout should show default 15000"
+
     def test_clean_tool_names(self):
         """No generated function should have ugly dedup suffixes."""
         funcs = re.findall(r"async def (slskd_\w+)\(", self.code)

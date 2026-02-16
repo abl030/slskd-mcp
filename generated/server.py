@@ -2077,7 +2077,7 @@ if _module_enabled("searches"):
             minimumResponseFileCount: Gets or sets the minimum number of files a response must contain in order to be processed. (Default = 1).
             responseLimit: Gets or sets the maximum number of search results to accept before the search is considered complete. (Default = 100).
             searchText: Gets or sets the search text.
-            searchTimeout: Gets or sets the search timeout value, in seconds, used to determine when the search is complete. (Default = 15).
+            searchTimeout: Gets or sets the search timeout value, in milliseconds, used to determine when the search is complete. (Default = 15000).
             token: Gets or sets the search token.
             """
             if not confirm:
